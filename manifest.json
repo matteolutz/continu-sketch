@@ -1,0 +1,10 @@
+{
+	"id": "continu-sketch",
+	"name": "ContinuSketch",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Demonstrates some of the capabilities of the Obsidian API.",
+	"author": "Matteo Lutz",
+	"authorUrl": "https://matteolutz.de",
+	"isDesktopOnly": false
+}
