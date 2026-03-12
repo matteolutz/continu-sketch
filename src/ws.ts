@@ -43,7 +43,10 @@ type WebSocketServerMessage =
       handoffId: number;
     };
 
-export type WebRTCDataChannelRemoteMessage = {};
+export type WebRTCDataChannelRemoteMessage = {
+  type: "diff";
+  diff: unknown;
+};
 
 export type WebRTCDataChannelObsidianMessage = {
   type: "file";

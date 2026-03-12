@@ -1,10 +1,19 @@
-import { App, Modal, Plugin } from "obsidian";
+import { App, Modal, Plugin, TFile } from "obsidian";
 import {
   DEFAULT_SETTINGS,
   ContinuSketchSettings,
   ContinuSketchSettingsTab,
 } from "./settings";
-import { ContinuSketchWebSocket, WebRTCDataChannelObsidianMessage } from "ws";
+import {
+  ContinuSketchWebSocket,
+  WebRTCDataChannelObsidianMessage,
+  WebRTCDataChannelRemoteMessage,
+} from "ws";
+import {
+  ContinuSketchFormatStrategy,
+  ExcalidrawFormatStrategy,
+  FallbackStrategy,
+} from "continu-sketch-diff";
 
 export const SERVER_BASE_URL = "http://localhost:3000";
 export const SERVER_BASE_WS_URL = `ws://localhost:3000`;
@@ -49,6 +58,22 @@ export default class ContinuSketch extends Plugin {
       },
     });
 
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        menu.addSeparator().addItem((item) => {
+          item
+            .setTitle("Handoff")
+            .setIcon("hand")
+            .onClick(() => {
+              if (file instanceof TFile) {
+                console.log(file);
+                new HandoffFileModal(this.app, this, file).open();
+              }
+            });
+        });
+      }),
+    );
+
     // This adds a settings tab so the user can configure various aspects of the plugin
     this.addSettingTab(
       (this.settingsTab = new ContinuSketchSettingsTab(this.app, this)),
@@ -76,11 +101,15 @@ class HandoffFileModal extends Modal {
     handoffId: number;
   } | null = null;
 
+  private readonly file: TFile | null;
+
   constructor(
     app: App,
     private readonly plugin: ContinuSketch,
+    file: TFile | null = null,
   ) {
     super(app);
+    this.file = file ?? this.app.workspace.getActiveFile();
   }
 
   private async sendHandoffRequest() {
@@ -88,7 +117,7 @@ class HandoffFileModal extends Modal {
       return;
     }
 
-    const activeFile = this.app.workspace.getActiveFile();
+    const activeFile = this.file;
     if (activeFile === null) {
       return;
     }
@@ -153,6 +182,12 @@ class HandoffFileModal extends Modal {
       },
     );
 
+    let strategy: ContinuSketchFormatStrategy<unknown, unknown, string> =
+      new FallbackStrategy();
+    if (fileType === "md" && fileName.endsWith(".excalidraw")) {
+      strategy = new ExcalidrawFormatStrategy();
+    }
+
     pc.onicecandidate = (event) => {
       if (event.candidate)
         send({ type: "candidate", candidate: event.candidate });
@@ -161,8 +196,20 @@ class HandoffFileModal extends Modal {
     pc.ondatachannel = (event) => {
       const channel = event.channel;
 
-      channel.onmessage = (event) => {
-        console.log(event);
+      channel.onmessage = async (event) => {
+        const message = JSON.parse(
+          event.data,
+        ) as WebRTCDataChannelRemoteMessage;
+
+        console.log("got ptp message", message);
+
+        switch (message.type) {
+          case "diff":
+            const fileContents = await this.app.vault.cachedRead(activeFile);
+            const newFileContents = strategy.apply(fileContents, message.diff);
+            await this.app.vault.modify(activeFile, newFileContents);
+            break;
+        }
       };
 
       channel.send(
